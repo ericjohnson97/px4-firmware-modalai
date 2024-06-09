@@ -118,12 +118,12 @@ protected:
 	void getNextPositionItems(int32_t start_index, int32_t items_index[], size_t &num_found_items,
 				  uint8_t max_num_items);
 	/**
-	 * @brief Has Mission a Land Start or Land Item
+	 * @brief Mission has a land start, a land, and is valid
 	 *
-	 * @return true If mission has a land start of land item and a land item
+	 * @return true If mission has a land start and a land item and is valid
 	 * @return false otherwise
 	 */
-	bool hasMissionLandStart() const { return _mission.land_start_index >= 0 && _mission.land_index >= 0;};
+	bool hasMissionLandStart() const { return _mission.land_start_index >= 0 && _mission.land_index >= 0 && isMissionValid();};
 	/**
 	 * @brief Go to next Mission Item
 	 * Go to next non jump mission item
@@ -250,8 +250,9 @@ protected:
 	 * @brief Load current mission item
 	 *
 	 * Load current mission item from dataman cache.
+	 * @return true, if the mission item could be loaded, false otherwise
 	 */
-	void loadCurrentMissionItem();
+	bool loadCurrentMissionItem();
 
 	/**
 	 * Set the mission result
@@ -312,6 +313,13 @@ protected:
 	 * @return false otherwise
 	 */
 	bool position_setpoint_equal(const position_setpoint_s *p1, const position_setpoint_s *p2) const;
+
+	/**
+	 * @brief Set the Mission Index
+	 *
+	 * @param[in] index Index of the mission item
+	 */
+	void setMissionIndex(int32_t index);
 
 	bool _is_current_planned_mission_item_valid{false};	/**< Flag indicating if the currently loaded mission item is valid*/
 	bool _mission_has_been_activated{false};		/**< Flag indicating if the mission has been activated*/
@@ -419,13 +427,6 @@ private:
 	 * @return true if there was a camera trigger command in the cached items that didn't disable triggering
 	 */
 	bool cameraWasTriggering();
-
-	/**
-	 * @brief Set the Mission Index
-	 *
-	 * @param[in] index Index of the mission item
-	 */
-	void setMissionIndex(int32_t index);
 
 	/**
 	 * @brief Parameters update

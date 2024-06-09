@@ -266,7 +266,7 @@ void EstimatorInterface::setAirspeedData(const airspeedSample &airspeed_sample)
 #endif // CONFIG_EKF2_AIRSPEED
 
 #if defined(CONFIG_EKF2_RANGE_FINDER)
-void EstimatorInterface::setRangeData(const rangeSample &range_sample)
+void EstimatorInterface::setRangeData(const sensor::rangeSample &range_sample)
 {
 	if (!_initialised) {
 		return;
@@ -274,7 +274,7 @@ void EstimatorInterface::setRangeData(const rangeSample &range_sample)
 
 	// Allocate the required buffer size if not previously done
 	if (_range_buffer == nullptr) {
-		_range_buffer = new RingBuffer<rangeSample>(_obs_buffer_length);
+		_range_buffer = new RingBuffer<sensor::rangeSample>(_obs_buffer_length);
 
 		if (_range_buffer == nullptr || !_range_buffer->valid()) {
 			delete _range_buffer;
@@ -291,7 +291,7 @@ void EstimatorInterface::setRangeData(const rangeSample &range_sample)
 	// limit data rate to prevent data being lost
 	if (time_us >= static_cast<int64_t>(_range_buffer->get_newest().time_us + _min_obs_interval_us)) {
 
-		rangeSample range_sample_new{range_sample};
+		sensor::rangeSample range_sample_new{range_sample};
 		range_sample_new.time_us = time_us;
 
 		_range_buffer->push(range_sample_new);
@@ -516,71 +516,15 @@ void EstimatorInterface::setDragData(const imuSample &imu)
 
 bool EstimatorInterface::initialise_interface(uint64_t timestamp)
 {
-	// find the maximum time delay the buffers are required to handle
-
-	// it's reasonable to assume that aux velocity device has low delay. TODO: check the delay only if the aux device is used
-	float max_time_delay_ms = _params.sensor_interval_max_ms;
-
-	// aux vel
-#if defined(CONFIG_EKF2_AUXVEL)
-	max_time_delay_ms = math::max(_params.auxvel_delay_ms, max_time_delay_ms);
-#endif // CONFIG_EKF2_AUXVEL
-
-#if defined(CONFIG_EKF2_BAROMETER)
-	// using baro
-	if (_params.baro_ctrl > 0) {
-		max_time_delay_ms = math::max(_params.baro_delay_ms, max_time_delay_ms);
-	}
-#endif // CONFIG_EKF2_BAROMETER
-
-#if defined(CONFIG_EKF2_AIRSPEED)
-	// using airspeed
-	if (_params.arsp_thr > FLT_EPSILON) {
-		max_time_delay_ms = math::max(_params.airspeed_delay_ms, max_time_delay_ms);
-	}
-#endif // CONFIG_EKF2_AIRSPEED
-
-#if defined(CONFIG_EKF2_MAGNETOMETER)
-	// mag mode
-	if (_params.mag_fusion_type != MagFuseType::NONE) {
-		max_time_delay_ms = math::max(_params.mag_delay_ms, max_time_delay_ms);
-	}
-#endif // CONFIG_EKF2_MAGNETOMETER
-
-#if defined(CONFIG_EKF2_RANGE_FINDER)
-	// using range finder
-	if ((_params.rng_ctrl != static_cast<int32_t>(RngCtrl::DISABLED))) {
-		max_time_delay_ms = math::max(_params.range_delay_ms, max_time_delay_ms);
-	}
-#endif // CONFIG_EKF2_RANGE_FINDER
-
-#if defined(CONFIG_EKF2_GNSS)
-	if (_params.gnss_ctrl > 0) {
-		max_time_delay_ms = math::max(_params.gps_delay_ms, max_time_delay_ms);
-	}
-#endif // CONFIG_EKF2_GNSS
-
-#if defined(CONFIG_EKF2_OPTICAL_FLOW)
-	if (_params.flow_ctrl > 0) {
-		max_time_delay_ms = math::max(_params.flow_delay_ms, max_time_delay_ms);
-	}
-#endif // CONFIG_EKF2_OPTICAL_FLOW
-
-#if defined(CONFIG_EKF2_EXTERNAL_VISION)
-	if (_params.ev_ctrl > 0) {
-		max_time_delay_ms = math::max(_params.ev_delay_ms, max_time_delay_ms);
-	}
-#endif // CONFIG_EKF2_EXTERNAL_VISION
-
 	const float filter_update_period_ms = _params.filter_update_interval_us / 1000.f;
 
 	// calculate the IMU buffer length required to accomodate the maximum delay with some allowance for jitter
-	_imu_buffer_length = math::max(2, (int)ceilf(max_time_delay_ms / filter_update_period_ms));
+	_imu_buffer_length = math::max(2, (int)ceilf(_params.delay_max_ms / filter_update_period_ms));
 
 	// set the observation buffer length to handle the minimum time of arrival between observations in combination
 	// with the worst case delay from current time to ekf fusion time
 	// allow for worst case 50% extension of the ekf fusion time horizon delay due to timing jitter
-	const float ekf_delay_ms = max_time_delay_ms * 1.5f;
+	const float ekf_delay_ms = _params.delay_max_ms * 1.5f;
 	_obs_buffer_length = roundf(ekf_delay_ms / filter_update_period_ms);
 
 	// limit to be no longer than the IMU buffer (we can't process data faster than the EKF prediction rate)

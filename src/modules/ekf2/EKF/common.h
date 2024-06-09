@@ -70,7 +70,6 @@ static constexpr uint64_t BARO_MAX_INTERVAL     = 200e3;  ///< Maximum allowable
 static constexpr uint64_t EV_MAX_INTERVAL       = 200e3;  ///< Maximum allowable time interval between external vision system measurements (uSec)
 static constexpr uint64_t GNSS_MAX_INTERVAL     = 500e3;  ///< Maximum allowable time interval between GNSS measurements (uSec)
 static constexpr uint64_t GNSS_YAW_MAX_INTERVAL = 1500e3; ///< Maximum allowable time interval between GNSS yaw measurements (uSec)
-static constexpr uint64_t RNG_MAX_INTERVAL      = 200e3;  ///< Maximum allowable time interval between range finder measurements (uSec)
 static constexpr uint64_t MAG_MAX_INTERVAL      = 500e3;  ///< Maximum allowable time interval between magnetic field measurements (uSec)
 
 // bad accelerometer detection and mitigation
@@ -95,15 +94,15 @@ enum class VelocityFrame : uint8_t {
 enum GeoDeclinationMask : uint8_t {
 	// Bit locations for mag_declination_source
 	USE_GEO_DECL  = (1<<0), ///< set to true to use the declination from the geo library when the GPS position becomes available, set to false to always use the EKF2_MAG_DECL value
-	SAVE_GEO_DECL = (1<<1), ///< set to true to set the EKF2_MAG_DECL parameter to the value returned by the geo library
-	FUSE_DECL     = (1<<2)  ///< set to true if the declination is always fused as an observation to constrain drift when 3-axis fusion is performed
+	SAVE_GEO_DECL = (1<<1)  ///< set to true to set the EKF2_MAG_DECL parameter to the value returned by the geo library
 };
 
 enum MagFuseType : uint8_t {
 	// Integer definitions for mag_fusion_type
 	AUTO    = 0,   	///< The selection of either heading or 3D magnetometer fusion will be automatic
 	HEADING = 1,   	///< Simple yaw angle fusion will always be used. This is less accurate, but less affected by earth field distortions. It should not be used for pitch angles outside the range from -60 to +60 deg
-	NONE    = 5    	///< Do not use magnetometer under any circumstance..
+	NONE    = 5,   	///< Do not use magnetometer under any circumstance.
+	INIT    = 6     ///< Use the mag for heading initialization only.
 };
 #endif // CONFIG_EKF2_MAGNETOMETER
 
@@ -198,12 +197,6 @@ struct baroSample {
 	bool        reset{false};
 };
 
-struct rangeSample {
-	uint64_t    time_us{};  ///< timestamp of the measurement (uSec)
-	float       rng{};      ///< range (distance to ground) measurement (m)
-	int8_t      quality{};  ///< Signal quality in percent (0...100%), where 0 = invalid signal, 100 = perfect signal, and -1 = unknown signal quality.
-};
-
 struct airspeedSample {
 	uint64_t    time_us{};          ///< timestamp of the measurement (uSec)
 	float       true_airspeed{};    ///< true airspeed measurement (m/sec)
@@ -266,7 +259,7 @@ struct parameters {
 	int32_t height_sensor_ref{static_cast<int32_t>(HeightSensor::BARO)};
 	int32_t position_sensor_ref{static_cast<int32_t>(PositionSensor::GNSS)};
 
-	int32_t sensor_interval_max_ms{10};     ///< maximum time of arrival difference between non IMU sensor updates. Sets the size of the observation buffers. (mSec)
+	float delay_max_ms{110.f};              ///< maximum time delay of all the aiding sensors. Sets the size of the observation buffers. (mSec)
 
 	// input noise
 	float gyro_noise{1.5e-2f};              ///< IMU angular rate noise used for covariance prediction (rad/sec)
@@ -361,7 +354,7 @@ struct parameters {
 	float mag_noise{5.0e-2f};               ///< measurement noise used for 3-axis magnetometer fusion (Gauss)
 	float mag_declination_deg{0.0f};        ///< magnetic declination (degrees)
 	float mag_innov_gate{3.0f};             ///< magnetometer fusion innovation consistency gate size (STD)
-	int32_t mag_declination_source{7};      ///< bitmask used to control the handling of declination data
+	int32_t mag_declination_source{3};      ///< bitmask used to control the handling of declination data
 	int32_t mag_fusion_type{0};             ///< integer used to specify the type of magnetometer fusion used
 	float mag_acc_gate{0.5f};               ///< when in auto select mode, heading fusion will be used when manoeuvre accel is lower than this (m/sec**2)
 

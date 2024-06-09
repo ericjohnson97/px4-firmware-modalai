@@ -151,16 +151,16 @@ CONFIG:
       buildType: MinSizeRel
       settings:
         CONFIG: ark_can-rtk-gps_canbootloader
-    ark_septentrio_gps_default:
-      short: ark_septentrio_gps_default
+    ark_septentrio-gps_default:
+      short: ark_septentrio-gps_default
       buildType: MinSizeRel
       settings:
-        CONFIG: ark_septentrio_gps_default
-    ark_septentrio_gps_canbootloader:
-      short: ark_septentrio_gps_canbootloader
+        CONFIG: ark_septentrio-gps_default
+    ark_septentrio-gps_canbootloader:
+      short: ark_septentrio-gps_canbootloader
       buildType: MinSizeRel
       settings:
-        CONFIG: ark_septentrio_gps_canbootloader
+        CONFIG: ark_septentrio-gps_canbootloader
     ark_cannode_default:
       short: ark_cannode_default
       buildType: MinSizeRel
@@ -181,6 +181,16 @@ CONFIG:
       buildType: MinSizeRel
       settings:
         CONFIG: ark_fmu-v6x_default
+    ark_pi6x_bootloader:
+      short: ark_pi6x_bootloader
+      buildType: MinSizeRel
+      settings:
+        CONFIG: ark_pi6x_bootloader
+    ark_pi6x_default:
+      short: ark_pi6x_default
+      buildType: MinSizeRel
+      settings:
+        CONFIG: ark_pi6x_default
     atl_mantis-edu_default:
       short: atl_mantis-edu
       buildType: MinSizeRel

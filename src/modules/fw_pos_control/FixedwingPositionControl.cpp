@@ -129,6 +129,7 @@ FixedwingPositionControl::parameters_update()
 	_tecs.set_speed_weight(_param_fw_t_spdweight.get());
 	_tecs.set_equivalent_airspeed_trim(_performance_model.getCalibratedTrimAirspeed());
 	_tecs.set_equivalent_airspeed_min(_performance_model.getMinimumCalibratedAirspeed());
+	_tecs.set_equivalent_airspeed_max(_performance_model.getMaximumCalibratedAirspeed());
 	_tecs.set_throttle_damp(_param_fw_t_thr_damping.get());
 	_tecs.set_integrator_gain_throttle(_param_fw_t_thr_integ.get());
 	_tecs.set_integrator_gain_pitch(_param_fw_t_I_gain_pit.get());
@@ -137,6 +138,7 @@ FixedwingPositionControl::parameters_update()
 	_tecs.set_roll_throttle_compensation(_param_fw_t_rll2thr.get());
 	_tecs.set_pitch_damping(_param_fw_t_ptch_damp.get());
 	_tecs.set_altitude_error_time_constant(_param_fw_t_h_error_tc.get());
+	_tecs.set_fast_descend_altitude_error(_param_fw_t_fast_alt_err.get());
 	_tecs.set_altitude_rate_ff(_param_fw_t_hrate_ff.get());
 	_tecs.set_airspeed_error_time_constant(_param_fw_t_tas_error_tc.get());
 	_tecs.set_ste_rate_time_const(_param_ste_rate_time_const.get());
@@ -1404,6 +1406,9 @@ FixedwingPositionControl::control_auto_path(const float control_interval, const 
 				   tecs_fw_thr_max,
 				   _param_sinkrate_target.get(),
 				   _param_climbrate_target.get());
+
+	_att_sp.thrust_body[0] = min(get_tecs_thrust(), tecs_fw_thr_max);
+	_att_sp.pitch_body = get_tecs_pitch();
 }
 
 void
@@ -1551,8 +1556,7 @@ FixedwingPositionControl::control_auto_takeoff(const hrt_abstime &now, const flo
 			_launchDetector.forceSetFlyState();
 		}
 
-		if (!_launch_detected && _launchDetector.getLaunchDetected() > launch_detection_status_s::STATE_WAITING_FOR_LAUNCH
-		    && _param_fw_laun_detcn_on.get()) {
+		if (!_launch_detected && _launchDetector.getLaunchDetected() > launch_detection_status_s::STATE_WAITING_FOR_LAUNCH) {
 			_launch_detected = true;
 			_launch_global_position = global_position;
 			_takeoff_ground_alt = _current_altitude;
@@ -1577,8 +1581,7 @@ FixedwingPositionControl::control_auto_takeoff(const hrt_abstime &now, const flo
 		}
 
 		/* Set control values depending on the detection state */
-		if (_launchDetector.getLaunchDetected() > launch_detection_status_s::STATE_WAITING_FOR_LAUNCH
-		    && _param_fw_laun_detcn_on.get()) {
+		if (_launchDetector.getLaunchDetected() > launch_detection_status_s::STATE_WAITING_FOR_LAUNCH) {
 			/* Launch has been detected, hence we have to control the plane. */
 
 			float target_airspeed = adapt_airspeed_setpoint(control_interval, takeoff_airspeed, adjusted_min_airspeed, ground_speed,
@@ -1609,7 +1612,7 @@ FixedwingPositionControl::control_auto_takeoff(const hrt_abstime &now, const flo
 				_att_sp.thrust_body[0] = _param_fw_thr_idle.get();
 
 			} else {
-				_att_sp.thrust_body[0] = (_landed) ? min(_param_fw_thr_idle.get(), 1.f) : get_tecs_thrust();
+				_att_sp.thrust_body[0] = get_tecs_thrust();
 			}
 
 			_att_sp.pitch_body = get_tecs_pitch();
@@ -2303,7 +2306,7 @@ FixedwingPositionControl::Run()
 			_reference_altitude = 0.f;
 		}
 
-		_current_altitude = -_local_pos.z + _local_pos.ref_alt; // Altitude AMSL in meters
+		_current_altitude = -_local_pos.z + _reference_altitude; // Altitude AMSL in meters
 
 		// handle estimator reset events. we only adjust setpoins for manual modes
 		if (_control_mode.flag_control_manual_enabled) {

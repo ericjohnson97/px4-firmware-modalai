@@ -64,6 +64,7 @@ EKF2::EKF2(bool multi_mode, const px4::wq_config_t &config, bool replay_mode):
 #endif // CONFIG_EKF2_WIND
 	_params(_ekf.getParamHandle()),
 	_param_ekf2_predict_us(_params->filter_update_interval_us),
+	_param_ekf2_delay_max(_params->delay_max_ms),
 	_param_ekf2_imu_ctrl(_params->imu_ctrl),
 #if defined(CONFIG_EKF2_AUXVEL)
 	_param_ekf2_avel_delay(_params->auxvel_delay_ms),
@@ -237,7 +238,6 @@ EKF2::~EKF2()
 bool EKF2::multi_init(int imu, int mag)
 {
 	// advertise all topics to ensure consistent uORB instance numbering
-	_ekf2_timestamps_pub.advertise();
 	_estimator_event_flags_pub.advertise();
 	_estimator_innovation_test_ratios_pub.advertise();
 	_estimator_innovation_variances_pub.advertise();
@@ -335,7 +335,6 @@ bool EKF2::multi_init(int imu, int mag)
 
 	// mag advertise
 	if (_param_ekf2_mag_type.get() != MagFuseType::NONE) {
-		_estimator_aid_src_mag_heading_pub.advertise();
 		_estimator_aid_src_mag_pub.advertise();
 	}
 
@@ -438,46 +437,6 @@ void EKF2::Run()
 		}
 
 #endif // CONFIG_EKF2_AIRSPEED
-
-#if defined(CONFIG_EKF2_BAROMETER)
-
-		// if using baro ensure sensor interval minimum is sufficient to accommodate system averaged baro output
-		if (_params->baro_ctrl == 1) {
-			float sens_baro_rate = 0.f;
-
-			if (param_get(param_find("SENS_BARO_RATE"), &sens_baro_rate) == PX4_OK) {
-				if (sens_baro_rate > 0) {
-					float interval_ms = roundf(1000.f / sens_baro_rate);
-
-					if (PX4_ISFINITE(interval_ms) && (interval_ms > _params->sensor_interval_max_ms)) {
-						PX4_DEBUG("updating sensor_interval_max_ms %.3f -> %.3f", (double)_params->sensor_interval_max_ms, (double)interval_ms);
-						_params->sensor_interval_max_ms = interval_ms;
-					}
-				}
-			}
-		}
-
-#endif // CONFIG_EKF2_BAROMETER
-
-#if defined(CONFIG_EKF2_MAGNETOMETER)
-
-		// if using mag ensure sensor interval minimum is sufficient to accommodate system averaged mag output
-		if (_params->mag_fusion_type != MagFuseType::NONE) {
-			float sens_mag_rate = 0.f;
-
-			if (param_get(param_find("SENS_MAG_RATE"), &sens_mag_rate) == PX4_OK) {
-				if (sens_mag_rate > 0) {
-					float interval_ms = roundf(1000.f / sens_mag_rate);
-
-					if (PX4_ISFINITE(interval_ms) && (interval_ms > _params->sensor_interval_max_ms)) {
-						PX4_DEBUG("updating sensor_interval_max_ms %.3f -> %.3f", (double)_params->sensor_interval_max_ms, (double)interval_ms);
-						_params->sensor_interval_max_ms = interval_ms;
-					}
-				}
-			}
-		}
-
-#endif // CONFIG_EKF2_MAGNETOMETER
 
 		_ekf.updateParameters();
 	}
@@ -810,6 +769,7 @@ void EKF2::VerifyParams()
 	if ((_param_ekf2_mag_type.get() != MagFuseType::AUTO)
 	    && (_param_ekf2_mag_type.get() != MagFuseType::HEADING)
 	    && (_param_ekf2_mag_type.get() != MagFuseType::NONE)
+	    && (_param_ekf2_mag_type.get() != MagFuseType::INIT)
 	   ) {
 
 		mavlink_log_critical(&_mavlink_log_pub, "EKF2_MAG_TYPE invalid, resetting to default");
@@ -824,6 +784,82 @@ void EKF2::VerifyParams()
 	}
 
 #endif // CONFIG_EKF2_MAGNETOMETER
+
+	float delay_max = _param_ekf2_delay_max.get();
+
+#if defined(CONFIG_EKF2_AUXVEL)
+
+	if (_param_ekf2_avel_delay.get() > delay_max) {
+		delay_max = _param_ekf2_avel_delay.get();
+	}
+
+#endif // CONFIG_EKF2_AUXVEL
+
+#if defined(CONFIG_EKF2_BAROMETER)
+
+	if (_param_ekf2_baro_delay.get() > delay_max) {
+		delay_max = _param_ekf2_baro_delay.get();
+	}
+
+#endif // CONFIG_EKF2_BAROMETER
+
+#if defined(CONFIG_EKF2_AIRSPEED)
+
+	if (_param_ekf2_asp_delay.get() > delay_max) {
+		delay_max = _param_ekf2_asp_delay.get();
+	}
+
+#endif // CONFIG_EKF2_AIRSPEED
+
+#if defined(CONFIG_EKF2_MAGNETOMETER)
+
+	if (_param_ekf2_mag_delay.get() > delay_max) {
+		delay_max = _param_ekf2_mag_delay.get();
+	}
+
+#endif // CONFIG_EKF2_MAGNETOMETER
+
+#if defined(CONFIG_EKF2_RANGE_FINDER)
+
+	if (_param_ekf2_rng_delay.get() > delay_max) {
+		delay_max = _param_ekf2_rng_delay.get();
+	}
+
+#endif // CONFIG_EKF2_RANGE_FINDER
+
+#if defined(CONFIG_EKF2_GNSS)
+
+	if (_param_ekf2_gps_delay.get() > delay_max) {
+		delay_max = _param_ekf2_gps_delay.get();
+	}
+
+#endif // CONFIG_EKF2_GNSS
+
+#if defined(CONFIG_EKF2_OPTICAL_FLOW)
+
+	if (_param_ekf2_of_delay.get() > delay_max) {
+		delay_max = _param_ekf2_of_delay.get();
+	}
+
+#endif // CONFIG_EKF2_OPTICAL_FLOW
+
+#if defined(CONFIG_EKF2_EXTERNAL_VISION)
+
+	if (_param_ekf2_ev_delay.get() > delay_max) {
+		delay_max = _param_ekf2_ev_delay.get();
+	}
+
+#endif // CONFIG_EKF2_EXTERNAL_VISION
+
+	if (delay_max > _param_ekf2_delay_max.get()) {
+		/* EVENT
+		 * @description EKF2_DELAY_MAX({1}ms) is too small compared to the maximum sensor delay ({2})
+		 */
+		events::send<float, float>(events::ID("nf_delay_max_too_small"), events::Log::Warning,
+					   "EKF2_DELAY_MAX increased to {2}ms, please reboot", _param_ekf2_delay_max.get(),
+					   delay_max);
+		_param_ekf2_delay_max.commit_no_notification(delay_max);
+	}
 }
 
 void EKF2::PublishAidSourceStatus(const hrt_abstime &timestamp)
@@ -874,9 +910,6 @@ void EKF2::PublishAidSourceStatus(const hrt_abstime &timestamp)
 #endif // CONFIG_EKF2_GNSS
 
 #if defined(CONFIG_EKF2_MAGNETOMETER)
-	// mag heading
-	PublishAidSourceStatus(_ekf.aid_src_mag_heading(), _status_mag_heading_pub_last, _estimator_aid_src_mag_heading_pub);
-
 	// mag 3d
 	PublishAidSourceStatus(_ekf.aid_src_mag(), _status_mag_pub_last, _estimator_aid_src_mag_pub);
 #endif // CONFIG_EKF2_MAGNETOMETER
@@ -1658,7 +1691,7 @@ void EKF2::PublishOdometry(const hrt_abstime &timestamp, const imuSample &imu_sa
 	_ekf.getPositionVariance().copyTo(odom.position_variance);
 
 	// orientation covariance
-	_ekf.getQuaternionVariance().copyTo(odom.orientation_variance);
+	_ekf.getRotVarBody().copyTo(odom.orientation_variance);
 
 	odom.reset_counter = _ekf.get_quat_reset_count()
 			     + _ekf.get_velNE_reset_count() + _ekf.get_velD_reset_count()
@@ -2336,7 +2369,7 @@ bool EKF2::UpdateFlowSample(ekf2_timestamps_s &ekf2_timestamps)
 
 			int8_t quality = static_cast<float>(optical_flow.quality) / static_cast<float>(UINT8_MAX) * 100.f;
 
-			rangeSample range_sample {
+			estimator::sensor::rangeSample range_sample {
 				.time_us = optical_flow.timestamp_sample,
 				.rng = optical_flow.distance_m,
 				.quality = quality,
@@ -2475,7 +2508,7 @@ void EKF2::UpdateRangeSample(ekf2_timestamps_s &ekf2_timestamps)
 	if (_distance_sensor_selected >= 0 && _distance_sensor_subs[_distance_sensor_selected].update(&distance_sensor)) {
 		// EKF range sample
 		if (distance_sensor.orientation == distance_sensor_s::ROTATION_DOWNWARD_FACING) {
-			rangeSample range_sample {
+			estimator::sensor::rangeSample range_sample {
 				.time_us = distance_sensor.timestamp,
 				.rng = distance_sensor.current_distance,
 				.quality = distance_sensor.signal_quality,

@@ -46,12 +46,12 @@
 #include "estimator_interface.h"
 
 #if defined(CONFIG_EKF2_GNSS)
-# include "EKFGSF_yaw.h"
+# include "yaw_estimator/EKFGSF_yaw.h"
 #endif // CONFIG_EKF2_GNSS
 
-#include "bias_estimator.hpp"
-#include "height_bias_estimator.hpp"
-#include "position_bias_estimator.hpp"
+#include "bias_estimator/bias_estimator.hpp"
+#include "bias_estimator/height_bias_estimator.hpp"
+#include "bias_estimator/position_bias_estimator.hpp"
 
 #include <ekf_derivation/generated/state.h>
 
@@ -63,7 +63,7 @@
 #include "aid_sources/ZeroVelocityUpdate.hpp"
 
 #if defined(CONFIG_EKF2_AUX_GLOBAL_POSITION)
-# include "aux_global_position.hpp"
+# include "aid_sources/aux_global_position/aux_global_position.hpp"
 #endif // CONFIG_EKF2_AUX_GLOBAL_POSITION
 
 enum class Likelihood { LOW, MEDIUM, HIGH };
@@ -149,11 +149,7 @@ public:
 	float getHeadingInnov() const
 	{
 #if defined(CONFIG_EKF2_MAGNETOMETER)
-		if (_control_status.flags.mag_hdg) {
-			return _aid_src_mag_heading.innovation;
-		}
-
-		if (_control_status.flags.mag_3D) {
+		if (_control_status.flags.mag_hdg || _control_status.flags.mag_3D) {
 			return Vector3f(_aid_src_mag.innovation).max();
 		}
 #endif // CONFIG_EKF2_MAGNETOMETER
@@ -176,11 +172,7 @@ public:
 	float getHeadingInnovVar() const
 	{
 #if defined(CONFIG_EKF2_MAGNETOMETER)
-		if (_control_status.flags.mag_hdg) {
-			return _aid_src_mag_heading.innovation_variance;
-		}
-
-		if (_control_status.flags.mag_3D) {
+		if (_control_status.flags.mag_hdg || _control_status.flags.mag_3D) {
 			return Vector3f(_aid_src_mag.innovation_variance).max();
 		}
 #endif // CONFIG_EKF2_MAGNETOMETER
@@ -203,11 +195,7 @@ public:
 	float getHeadingInnovRatio() const
 	{
 #if defined(CONFIG_EKF2_MAGNETOMETER)
-		if (_control_status.flags.mag_hdg) {
-			return _aid_src_mag_heading.test_ratio;
-		}
-
-		if (_control_status.flags.mag_3D) {
+		if (_control_status.flags.mag_hdg || _control_status.flags.mag_3D) {
 			return Vector3f(_aid_src_mag.test_ratio).max();
 		}
 #endif // CONFIG_EKF2_MAGNETOMETER
@@ -254,7 +242,7 @@ public:
 	// get the diagonal elements of the covariance matrix
 	matrix::Vector<float, State::size> covariances_diagonal() const { return P.diag(); }
 
-	matrix::Vector<float, State::quat_nominal.dof> getQuaternionVariance() const { return getStateVariance<State::quat_nominal>(); }
+	matrix::Vector3f getRotVarBody() const;
 	matrix::Vector3f getRotVarNed() const;
 	float getYawVar() const;
 	float getTiltVariance() const;
@@ -277,11 +265,12 @@ public:
 	// get the 1-sigma horizontal and vertical velocity uncertainty
 	void get_ekf_vel_accuracy(float *ekf_evh, float *ekf_evv) const;
 
-	// get the vehicle control limits required by the estimator to keep within sensor limitations
+	// Returns the following vehicle control limits required by the estimator to keep within sensor limitations.
+	//  vxy_max : Maximum ground relative horizontal speed (meters/sec). NaN when limiting is not needed.
+	//  vz_max : Maximum ground relative vertical speed (meters/sec). NaN when limiting is not needed.
+	//  hagl_min : Minimum height above ground (meters). NaN when limiting is not needed.
+	// hagl_max : Maximum height above ground (meters). NaN when limiting is not needed.
 	void get_ekf_ctrl_limits(float *vxy_max, float *vz_max, float *hagl_min, float *hagl_max) const;
-
-	// Reset all IMU bias states and covariances to initial alignment values.
-	void resetImuBias();
 
 	void resetGyroBias();
 	void resetGyroBiasCov();
@@ -402,7 +391,7 @@ public:
 	void get_innovation_test_status(uint16_t &status, float &mag, float &vel, float &pos, float &hgt, float &tas,
 					float &hagl, float &beta) const;
 
-	// return a bitmask integer that describes which state estimates can be used for flight control
+	// return a bitmask integer that describes which state estimates are valid
 	void get_ekf_soln_status(uint16_t *status) const;
 
 	HeightSensor getHeightSensorRef() const { return _height_sensor_ref; }
@@ -460,7 +449,6 @@ public:
 #endif // CONFIG_EKF2_GNSS
 
 #if defined(CONFIG_EKF2_MAGNETOMETER)
-	const auto &aid_src_mag_heading() const { return _aid_src_mag_heading; }
 	const auto &aid_src_mag() const { return _aid_src_mag; }
 #endif // CONFIG_EKF2_MAGNETOMETER
 
@@ -685,7 +673,6 @@ private:
 
 # if defined(CONFIG_EKF2_GNSS_YAW)
 	estimator_aid_source1d_s _aid_src_gnss_yaw{};
-	uint8_t _nb_gps_yaw_reset_available{0}; ///< remaining number of resets allowed before switching to another aiding source
 # endif // CONFIG_EKF2_GNSS_YAW
 #endif // CONFIG_EKF2_GNSS
 
@@ -715,19 +702,10 @@ private:
 #endif // CONFIG_EKF2_BAROMETER
 
 #if defined(CONFIG_EKF2_MAGNETOMETER)
-	float _mag_heading_prev{};                 ///< previous value of mag heading (rad)
-	float _mag_heading_pred_prev{};            ///< previous value of yaw state used by mag heading fusion (rad)
-
 	// used by magnetometer fusion mode selection
-	bool _yaw_angle_observable{false};	///< true when there is enough horizontal acceleration to make yaw observable
 	AlphaFilter<float> _mag_heading_innov_lpf{0.1f};
-	float _mag_heading_last_declination{}; ///< last magnetic field declination used for heading fusion (rad)
-	bool _mag_decl_cov_reset{false};	///< true after the fuseDeclination() function has been used to modify the earth field covariances after a magnetic field reset event.
-	uint8_t _nb_mag_heading_reset_available{0};
-	uint8_t _nb_mag_3d_reset_available{0};
 	uint32_t _min_mag_health_time_us{1'000'000}; ///< magnetometer is marked as healthy only after this amount of time
 
-	estimator_aid_source1d_s _aid_src_mag_heading{};
 	estimator_aid_source3d_s _aid_src_mag{};
 
 	AlphaFilter<Vector3f> _mag_lpf{0.1f};	///< filtered magnetometer measurement for instant reset (Gauss)
@@ -777,14 +755,12 @@ private:
 
 #if defined(CONFIG_EKF2_MAGNETOMETER)
 	// ekf sequential fusion of magnetometer measurements
-	bool fuseMag(const Vector3f &mag, estimator_aid_source3d_s &aid_src_mag, bool update_all_states = true);
+	bool fuseMag(const Vector3f &mag, const float R_MAG, VectorState &H, estimator_aid_source3d_s &aid_src, bool update_all_states = false, bool update_tilt = false);
 
 	// fuse magnetometer declination measurement
 	// argument passed in is the declination uncertainty in radians
 	bool fuseDeclination(float decl_sigma);
 
-	// apply sensible limits to the declination and length of the NE mag field states estimates
-	void limitDeclination();
 #endif // CONFIG_EKF2_MAGNETOMETER
 
 #if defined(CONFIG_EKF2_AIRSPEED)
@@ -967,10 +943,6 @@ private:
 	// and a scalar innovation value
 	void fuse(const VectorState &K, float innovation);
 
-#if defined(CONFIG_EKF2_BARO_COMPENSATION)
-	float compensateBaroForDynamicPressure(float baro_alt_uncompensated) const;
-#endif // CONFIG_EKF2_BARO_COMPENSATION
-
 	// calculate the earth rotation vector from a given latitude
 	Vector3f calcEarthRateNED(float lat_rad) const;
 
@@ -1048,8 +1020,6 @@ private:
 #if defined(CONFIG_EKF2_MAGNETOMETER)
 	// control fusion of magnetometer observations
 	void controlMagFusion();
-	void controlMagHeadingFusion(const magSample &mag_sample, const bool common_starting_conditions_passing, estimator_aid_source1d_s &aid_src);
-	void controlMag3DFusion(const magSample &mag_sample, const bool common_starting_conditions_passing, estimator_aid_source3d_s &aid_src);
 
 	bool checkHaglYawResetReq() const;
 
@@ -1057,13 +1027,11 @@ private:
 	void resetMagStates(const Vector3f &mag, bool reset_heading = true);
 	bool haglYawResetReq();
 
-	void checkYawAngleObservability();
-	void checkMagHeadingConsistency();
+	void checkMagHeadingConsistency(const magSample &mag_sample);
 
 	bool checkMagField(const Vector3f &mag);
 	static bool isMeasuredMatchingExpected(float measured, float expected, float gate);
 
-	void stopMagHdgFusion();
 	void stopMagFusion();
 
 	// calculate a synthetic value for the magnetometer Z component, given the 3D magnetomter
@@ -1101,6 +1069,11 @@ private:
 	void stopBaroHgtFusion();
 
 	void updateGroundEffect();
+
+# if defined(CONFIG_EKF2_BARO_COMPENSATION)
+	float compensateBaroForDynamicPressure(float baro_alt_uncompensated) const;
+# endif // CONFIG_EKF2_BARO_COMPENSATION
+
 #endif // CONFIG_EKF2_BAROMETER
 
 #if defined(CONFIG_EKF2_GRAVITY_FUSION)
@@ -1109,7 +1082,7 @@ private:
 #endif // CONFIG_EKF2_GRAVITY_FUSION
 
 	void resetQuatCov(const float yaw_noise = NAN);
-	void resetQuatCov(const Vector3f &euler_noise_ned);
+	void resetQuatCov(const Vector3f &rot_var_ned);
 
 #if defined(CONFIG_EKF2_MAGNETOMETER)
 	void resetMagCov();
@@ -1123,9 +1096,6 @@ private:
 #endif // CONFIG_EKF2_WIND
 
 	void resetGyroBiasZCov();
-
-	// uncorrelate quaternion states from other states
-	void uncorrelateQuatFromOtherStates();
 
 	bool isTimedOut(uint64_t last_sensor_timestamp, uint64_t timeout_period) const
 	{

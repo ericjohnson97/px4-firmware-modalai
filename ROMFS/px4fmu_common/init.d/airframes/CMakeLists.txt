@@ -69,6 +69,7 @@ if(CONFIG_MODULES_MC_RATE_CONTROL)
 		4071_ifo
 		4073_ifo-s
 		4500_clover4
+		4601_droneblocks_dexi_5
 		4901_crazyflie21
 
 		# [5000, 5999] Quadrotor +
@@ -145,6 +146,12 @@ endif()
 if(CONFIG_MODULES_DIFFERENTIAL_DRIVE)
 	px4_add_romfs_files(
 		50003_aion_robotics_r1_rover
+	)
+endif()
+
+if(CONFIG_MODULES_ROVER_ACKERMANN)
+	px4_add_romfs_files(
+		50010_ackermann_rover_generic
 	)
 endif()
 

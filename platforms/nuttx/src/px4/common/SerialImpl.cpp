@@ -74,6 +74,11 @@ bool SerialImpl::configure()
 	int speed;
 
 	switch (_baudrate) {
+	case 0:
+		// special case, if baudrate is 0 it hangs entire system
+		PX4_ERR("baudrate not specified");
+		return false;
+
 	case 9600:   speed = B9600;   break;
 
 	case 19200:  speed = B19200;  break;
@@ -181,7 +186,7 @@ bool SerialImpl::open()
 	}
 
 	// Open the serial port
-	int serial_fd = ::open(_port, O_RDWR | O_NOCTTY);
+	int serial_fd = ::open(_port, O_RDWR | O_NOCTTY | O_NONBLOCK);
 
 	if (serial_fd < 0) {
 		PX4_ERR("failed to open %s err: %d", _port, errno);
